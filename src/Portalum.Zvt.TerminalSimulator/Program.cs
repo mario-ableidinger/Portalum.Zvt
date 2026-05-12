@@ -7,6 +7,8 @@ class Program
     private static readonly byte[] _completionPackage = [0x06, 0x0F, 0x00]; //3.2 Completion
 
     private static SimpleTcpServer? _tcpServer;
+    private static readonly ManualResetEventSlim _waitForKeyPressEvent = new ManualResetEventSlim(false);
+    private static volatile bool _waitingForKeyPress = false;
 
     static void Main(string[] args)
     {
@@ -17,14 +19,35 @@ class Program
         _tcpServer.Start();
 
         Console.WriteLine("Virtual Terminal ready on 127.0.0.1:20007");
-        Console.WriteLine("Wait for connections, press any key for quit");
-        Console.ReadLine();
+        Console.WriteLine("Wait for connections, press ESC to quit");
+
+        while (true)
+        {
+            var key = Console.ReadKey(intercept: true);
+
+            if (key.Key == ConsoleKey.Escape)
+                break;
+
+            if (_waitingForKeyPress)
+            {
+                _waitingForKeyPress = false;
+                _waitForKeyPressEvent.Set();
+            }
+        }
 
         _tcpServer.Events.ClientConnected -= Events_ClientConnected;
         _tcpServer.Events.ClientDisconnected -= Events_ClientDisconnected;
         _tcpServer.Events.DataReceived -= Events_DataReceived;
         _tcpServer.Stop();
         _tcpServer.Dispose();
+    }
+
+    private static void WaitForKeyPress(string message = "Press any key to continue...")
+    {
+        Console.WriteLine(message);
+        _waitForKeyPressEvent.Reset();
+        _waitingForKeyPress = true;
+        _waitForKeyPressEvent.Wait();
     }
 
     private static void Events_ClientConnected(object? sender, ConnectionEventArgs e)
@@ -119,7 +142,7 @@ class Program
             var waitForCardMessage = new byte[] { 0x04, 0xFF, 0x01, 0x0A };
             _tcpServer.Send(e.IpPort, waitForCardMessage);
 
-            Thread.Sleep(2000);
+            WaitForKeyPress("Card inserted? Press any key to continue...");
 
             // Step 3
 
