@@ -5,10 +5,12 @@ class Program
 {
     private static readonly byte[] _commandCompletionPackage = [0x80, 0x00, 0x00];
     private static readonly byte[] _completionPackage = [0x06, 0x0F, 0x00]; //3.2 Completion
+    private static readonly byte[] _abortPackage = [0x06, 0x1E, 0x09, 0x6C, 0x06, 0x06, 0x1F, 0x16, 0x03, 0x01, 0xFC, 0x38];
 
     private static SimpleTcpServer? _tcpServer;
     private static readonly ManualResetEventSlim _waitForKeyPressEvent = new ManualResetEventSlim(false);
     private static volatile bool _waitingForKeyPress = false;
+    private static volatile bool _waitForYes = false;
 
     static void Main(string[] args)
     {
@@ -19,20 +21,24 @@ class Program
         _tcpServer.Start();
 
         Console.WriteLine("Virtual Terminal ready on 127.0.0.1:20007");
+        ConsoleWriteStars();
         Console.WriteLine("Wait for connections, press ESC to quit");
+        ConsoleWriteStars();
 
         while (true)
         {
             var key = Console.ReadKey(intercept: true);
 
-            if (key.Key == ConsoleKey.Escape)
-                break;
-
             if (_waitingForKeyPress)
             {
+                _waitForYes = key.KeyChar is 'Y' or 'y';
                 _waitingForKeyPress = false;
                 _waitForKeyPressEvent.Set();
+                continue;
             }
+
+            if (key.Key == ConsoleKey.Escape)
+                break;
         }
 
         _tcpServer.Events.ClientConnected -= Events_ClientConnected;
@@ -42,12 +48,22 @@ class Program
         _tcpServer.Dispose();
     }
 
-    private static void WaitForKeyPress(string message = "Press any key to continue...")
+    private static bool WaitForKeyPress(string message = "Press Y to continue, any other key aborts...")
     {
+        ConsoleWriteStars();
         Console.WriteLine(message);
+        ConsoleWriteStars();
+        _waitForYes = false;
         _waitForKeyPressEvent.Reset();
         _waitingForKeyPress = true;
         _waitForKeyPressEvent.Wait();
+
+        return _waitForYes;
+    }
+
+    private static void ConsoleWriteStars()
+    {
+        Console.WriteLine(new string('*', 80));
     }
 
     private static void Events_ClientConnected(object? sender, ConnectionEventArgs e)
@@ -142,7 +158,18 @@ class Program
             var waitForCardMessage = new byte[] { 0x04, 0xFF, 0x01, 0x0A };
             _tcpServer.Send(e.IpPort, waitForCardMessage);
 
-            WaitForKeyPress("Card inserted? Press any key to continue...");
+            if (!WaitForKeyPress("Card inserted? Press Y to continue, any other key aborts..."))
+            {
+                if (!IsClientConnected(e.IpPort))
+                {
+                    Console.WriteLine("Failure - Client is not connected");
+                    return;
+                }
+
+                Console.WriteLine("Send Abort");
+                _tcpServer.Send(e.IpPort, _abortPackage);
+                return;
+            }
 
             // Step 3
 
