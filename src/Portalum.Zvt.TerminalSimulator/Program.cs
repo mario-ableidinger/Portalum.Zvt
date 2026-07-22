@@ -11,6 +11,7 @@ class Program
     private static readonly ManualResetEventSlim _waitForKeyPressEvent = new ManualResetEventSlim(false);
     private static volatile bool _waitingForKeyPress = false;
     private static volatile bool _waitForYes = false;
+    private static volatile bool _waitForAuto = false;
 
     static void Main(string[] args)
     {
@@ -32,6 +33,8 @@ class Program
             if (_waitingForKeyPress)
             {
                 _waitForYes = key.KeyChar is 'Y' or 'y';
+                _waitForAuto = key.KeyChar is 'A' or 'a';
+                if (_waitForAuto) _waitForYes = true;
                 _waitingForKeyPress = false;
                 _waitForKeyPressEvent.Set();
                 continue;
@@ -50,6 +53,12 @@ class Program
 
     private static bool WaitForKeyPress(string message = "Press Y to continue, any other key aborts...")
     {
+        if (_waitForAuto)
+        {
+            Console.WriteLine("Continue automatically...");
+            return true;
+        }
+
         ConsoleWriteStars();
         Console.WriteLine(message);
         ConsoleWriteStars();
@@ -158,7 +167,7 @@ class Program
             var waitForCardMessage = new byte[] { 0x04, 0xFF, 0x01, 0x0A };
             _tcpServer.Send(e.IpPort, waitForCardMessage);
 
-            if (!WaitForKeyPress("Card inserted? Press Y to continue, any other key aborts..."))
+            if (!WaitForKeyPress("Card inserted? Press Y to continue, A to continue automatically or any other key aborts..."))
             {
                 if (!IsClientConnected(e.IpPort))
                 {
